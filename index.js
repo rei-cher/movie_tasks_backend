@@ -1,6 +1,8 @@
 const express = require('express');
 const {Pool} = require('pg');
+const bcrypt = require('bcrypt');
 const cors = require('cors');
+const saltRounds = 10;
 require('dotenv').config();
 
 const app = express();
@@ -15,6 +17,62 @@ const pool = new Pool({
 
 app.use(cors());
 app.use(express.json());
+
+
+//-------User Managment------------
+
+app.post('/api/login', async (req, res) => {
+    const {email, password} = req.body;
+    try{
+        const query = 'select * from users where email = $1;';
+        const {rows} = await pool.query(query, [email]);
+
+        if (rows.length === 1){
+            const isMatch = await bcrypt.compare(password, rows[0].password_hash);
+
+            if(isMatch){
+                res.json({message: "Login successful"});
+            }
+            else{
+                res.status(401).json({message: "Invalid credentials"});
+            }
+        }
+        else{
+            res.status(404).json({message: "User not found"});
+        }
+    }
+    catch (err){
+        console.error("Server Error: ", err);
+        res.status(500).send("Server Error");
+    }
+});
+
+app.post('/api/register', async (req, res) => {
+    const {email, password, fisrtName, lastName} = req.body;
+
+    try{
+        const userExists = await pool.query('select * from users where email = $1', [email]);
+
+        if(userExists.rows.length){
+            return res.status(400).json({message: "User already exists"});
+        }
+
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        const newUser = await pool.query('insert into users (email, password_hash, first_name, last_name) values ($1, $2, $3, $4) returning *',
+        [email, hashedPassword, fisrtName, lastName]);
+        
+        const {password:_, ...userWithoutPassword} = newUser.rows[0];
+        res.json(userWithoutPassword);
+    }catch (err){
+        console.error(err);
+        res.status(500).send("Server error");
+    }
+});
+
+
+
+//--------Movies Managment----------
 
 app.post('/api/watch-later', async (req, res) => {
     const {email, movieId, movieData} = req.body;
